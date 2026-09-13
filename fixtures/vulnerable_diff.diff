@@ -1,0 +1,24 @@
+@@ -1,15 +1,28 @@
+ import sqlite3
+ import os
++import pickle
++
++API_KEY = "sk_live_9384729182374918273"
+ 
+ def get_user_data(username):
+-    conn = sqlite3.connect('database.db')
+-    cursor = conn.cursor()
+-    cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
+-    return cursor.fetchone()
++    conn = sqlite3.connect('database.db')
++    cursor = conn.cursor()
++    # Dangerous: SQL Injection risk
++    query = f"SELECT * FROM users WHERE username = '{username}'"
++    cursor.execute(query)
++    # Dangerous: Connection leak (not closed, no context manager)
++    return cursor.fetchone()
++
++def load_session(session_token):
++    # Dangerous: Insecure deserialization via pickle
++    data = pickle.loads(session_token)
++    return data
