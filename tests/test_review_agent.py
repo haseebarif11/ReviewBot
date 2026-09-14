@@ -206,3 +206,62 @@ def test_review_agent_with_prompt_injection_in_diff():
     assert result.findings[0].severity == Severity.CRITICAL
     assert result.findings[0].title == "Arbitrary Code Execution via eval"
 
+
+def test_extract_json_truncated_vs_malformed(caplog):
+    import logging
+    agent = ReviewAgent()
+
+    with caplog.at_level(logging.WARNING):
+        # Truncated JSON without closing brace
+        truncated_raw = '{"summary": "Starts well", "findings": [{"line": 5, "title": "Incomplete"'
+        res = agent._extract_json(truncated_raw)
+        assert res["findings"] == []
+        assert "truncated before completing JSON object" in caplog.text
+
+    caplog.clear()
+
+    with caplog.at_level(logging.ERROR):
+        # Malformed JSON with closing brace
+        malformed_raw = '{"summary": this is not valid json!}'
+        res = agent._extract_json(malformed_raw)
+        assert res["findings"] == []
+        assert "malformed JSON" in caplog.text
+
+
+def test_review_agent_retry_backoff_on_transient_error():
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+    import anthropic
+    import httpx
+
+    parser = DiffParser()
+    patch = "@@ -1,2 +1,2 @@\n-old\n+new\n"
+    diff = parser.parse_patch("file.py", "modified", patch)
+    diff.valid_new_lines = {1}
+
+    agent = ReviewAgent(api_key="fake-test-key")
+
+    mock_content = MagicMock()
+    mock_content.text = '{"summary": "Clean code", "findings": []}'
+    success_response = MagicMock()
+    success_response.content = [mock_content]
+
+    # Create a realistic transient error (e.g. Anthropic RateLimitError)
+    dummy_req = httpx.Request("POST", "https://api.anthropic.com")
+    dummy_resp = httpx.Response(status_code=429, request=dummy_req)
+    rate_limit_err = anthropic.RateLimitError(
+        message="Rate limit exceeded",
+        response=dummy_resp,
+        body={"error": {"type": "rate_limit_error", "message": "Rate limit exceeded"}}
+    )
+
+    mock_client = MagicMock()
+    # Fails once, then succeeds on attempt 2
+    mock_client.messages.create = AsyncMock(side_effect=[rate_limit_err, success_response])
+    agent.client = mock_client
+
+    res = asyncio.run(agent.review_file(diff))
+    assert res.summary == "Clean code"
+    assert mock_client.messages.create.call_count == 2
+
+

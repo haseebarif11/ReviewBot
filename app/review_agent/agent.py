@@ -8,6 +8,7 @@ import logging
 import re
 from typing import Any, Dict, List, Optional
 import anthropic
+from tenacity import AsyncRetrying, retry_if_exception, stop_after_attempt, wait_exponential
 
 from app.config import settings
 from app.github_client.diff_parser import ParsedFileDiff
@@ -24,6 +25,15 @@ from app.review_agent.schemas import (
 )
 
 logger = logging.getLogger("reviewbot.agent")
+
+
+def _is_retryable_anthropic_error(exc: BaseException) -> bool:
+    """Identifies transient Anthropic API and HTTP status errors suitable for retry."""
+    if isinstance(exc, (anthropic.RateLimitError, anthropic.InternalServerError, anthropic.APITimeoutError, anthropic.APIConnectionError)):
+        return True
+    if isinstance(exc, anthropic.APIStatusError) and exc.status_code in (429, 500, 502, 503, 504, 529):
+        return True
+    return False
 
 
 class ReviewAgent:
@@ -51,7 +61,7 @@ class ReviewAgent:
     def _extract_json(self, raw_text: str) -> Dict[str, Any]:
         """
         Extracts and parses JSON from the LLM response, handling markdown fences
-        or surrounding text.
+        or surrounding text. Distinguishes truncated responses from malformed JSON.
         """
         text = raw_text.strip()
 
@@ -74,7 +84,16 @@ class ReviewAgent:
             except json.JSONDecodeError as e:
                 logger.warning(f"Failed to parse extracted JSON substring: {e}")
 
-        logger.error(f"Could not parse LLM output as JSON:\n{raw_text[:500]}")
+        # Distinguish truncated response from malformed JSON
+        stripped = text.rstrip()
+        if not (stripped.endswith("}") or stripped.endswith("```")):
+            logger.warning(
+                f"Anthropic response appears to have been truncated before completing JSON object "
+                f"(length {len(raw_text)} chars, ends with: {stripped[-50:]!r})"
+            )
+        else:
+            logger.error(f"Could not parse LLM output as JSON (malformed JSON):\n{raw_text[:500]}")
+
         return {"summary": "Unable to parse review findings.", "findings": []}
 
     async def review_file(
@@ -104,16 +123,23 @@ class ReviewAgent:
         )
 
         try:
-            response = await self.client.messages.create(
-                model=self.model,
-                max_tokens=2048,
-                system=REVIEWER_SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
-            )
+            async for attempt in AsyncRetrying(
+                stop=stop_after_attempt(3),
+                wait=wait_exponential(multiplier=1, min=1, max=10),
+                retry=retry_if_exception(_is_retryable_anthropic_error),
+                reraise=True,
+            ):
+                with attempt:
+                    response = await self.client.messages.create(
+                        model=self.model,
+                        max_tokens=settings.MAX_RESPONSE_TOKENS,
+                        system=REVIEWER_SYSTEM_PROMPT,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0.1,
+                    )
             raw_response = response.content[0].text
         except Exception as e:
-            logger.error(f"Anthropic API call failed for file {file_diff.filename}: {e}")
+            logger.error(f"Anthropic API call failed for file {file_diff.filename} after retries: {e}")
             return FileReviewResult(
                 file=file_diff.filename,
                 summary=f"Analysis failed: {str(e)}",

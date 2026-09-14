@@ -63,6 +63,10 @@ class Settings(BaseSettings):
         default=4000,
         description="Maximum tokens allowed in prompt per file"
     )
+    MAX_RESPONSE_TOKENS: int = Field(
+        default=4096,
+        description="Maximum tokens allowed for Claude review response"
+    )
 
     # Review Bot Behavior
     SEVERITY_THRESHOLD: str = Field(
