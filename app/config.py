@@ -77,6 +77,10 @@ class Settings(BaseSettings):
         default=100_000,
         description="Max file size in bytes to review (skip huge files)"
     )
+    REVIEW_CONCURRENCY_LIMIT: int = Field(
+        default=5,
+        description="Maximum concurrent file review calls to Anthropic API"
+    )
 
     # Ignored extensions & filenames
     IGNORE_EXTENSIONS: List[str] = Field(

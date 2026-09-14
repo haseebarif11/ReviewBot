@@ -4,6 +4,7 @@ Receives GitHub webhooks, verifies HMAC signatures, runs AI reviews in the backg
 handles slash commands, and provides a monitoring dashboard.
 """
 
+import asyncio
 import hashlib
 import hmac
 import html
@@ -19,6 +20,7 @@ from app.github_client.client import GitHubClient
 from app.github_client.diff_parser import DiffParser
 from app.review_agent.agent import ReviewAgent
 from app.review_agent.history import history_tracker
+from app.review_agent.schemas import FileReviewResult
 
 # Setup logging
 logging.basicConfig(
@@ -98,27 +100,48 @@ async def process_pull_request_review(
         parsed_files = diff_parser.parse_github_files(files_payload)
         file_diffs_map = {f.filename: f for f in parsed_files}
 
-        # Step 3: Review each file with Claude
-        file_results = []
-        for pf in parsed_files:
+        # Step 3: Review each file concurrently with Claude (bounded by semaphore)
+        semaphore = asyncio.Semaphore(settings.REVIEW_CONCURRENCY_LIMIT)
+
+        async def _review_worker(pf):
             if pf.is_ignored:
                 logger.debug(f"Skipping ignored file {pf.filename} ({pf.ignore_reason})")
-                continue
+                return None
 
-            logger.info(f"Analyzing {pf.filename} with Claude...")
-            res = await review_agent.review_file(pf, pr_title=pr_title, pr_body=pr_body)
+            async with semaphore:
+                logger.info(f"Analyzing {pf.filename} with Claude (concurrency limit: {settings.REVIEW_CONCURRENCY_LIMIT})...")
+                try:
+                    res = await review_agent.review_file(pf, pr_title=pr_title, pr_body=pr_body)
+                except Exception as e:
+                    logger.error(f"Failed to review file {pf.filename}: {e}")
+                    return FileReviewResult(
+                        file=pf.filename,
+                        summary=f"Analysis failed: {str(e)}",
+                        findings=[],
+                    )
 
-            # Filter out findings previously dismissed via /reviewbot ignore
-            filtered_findings = []
-            for finding in res.findings:
-                f_hash = history_tracker.finding_hash(finding.file, finding.line, finding.title)
-                if not history_tracker.is_finding_dismissed(owner, repo, pull_number, f_hash):
-                    filtered_findings.append(finding)
-                else:
-                    logger.info(f"Filtered out dismissed finding: {finding.title} in {finding.file}")
+                # Filter out findings previously dismissed via /reviewbot ignore
+                filtered_findings = []
+                for finding in res.findings:
+                    f_hash = history_tracker.finding_hash(finding.file, finding.line, finding.title)
+                    if not history_tracker.is_finding_dismissed(owner, repo, pull_number, f_hash):
+                        filtered_findings.append(finding)
+                    else:
+                        logger.info(f"Filtered out dismissed finding: {finding.title} in {finding.file}")
 
-            res.findings = filtered_findings
-            file_results.append(res)
+                res.findings = filtered_findings
+                return res
+
+        gathered_results = await asyncio.gather(*(_review_worker(pf) for pf in parsed_files), return_exceptions=True)
+        file_results = []
+        for res, pf in zip(gathered_results, parsed_files):
+            if isinstance(res, Exception):
+                logger.error(f"Unhandled exception reviewing {pf.filename}: {res}")
+                file_results.append(
+                    FileReviewResult(file=pf.filename, summary=f"Analysis failed: {str(res)}", findings=[])
+                )
+            elif res is not None:
+                file_results.append(res)
 
         # Step 4: Aggregate review findings
         aggregate = review_agent.aggregate_reviews(file_results, file_diffs_map)
