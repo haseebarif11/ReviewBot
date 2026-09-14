@@ -41,14 +41,23 @@ def build_file_review_prompt(
 
 File: `{file_diff.filename}`
 Change status: {file_diff.status} (+{file_diff.additions} / -{file_diff.deletions})
-PR Title: {pr_title or "N/A"}
-PR Description:
+
+<untrusted_pr_context>
+<untrusted_pr_title>
+{pr_title or "N/A"}
+</untrusted_pr_title>
+
+<untrusted_pr_description>
 {pr_body or "No description provided."}
+</untrusted_pr_description>
+</untrusted_pr_context>
 
 ### Annotated Diff:
+<untrusted_diff>
 ```diff
 {diff_body}
 ```
+</untrusted_diff>
 
 Please analyze this file diff according to the review instructions. Return your findings as the specified JSON object.
 """
