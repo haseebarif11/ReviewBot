@@ -48,6 +48,25 @@ def test_dashboard_endpoint():
     assert "PRs Reviewed" in resp.text
 
 
+def test_dashboard_xss_escaping():
+    from app.review_agent.history import history_tracker
+    history_tracker.record_review(
+        owner="attacker",
+        repo="xss-repo<script>",
+        pull_number=1337,
+        commit_sha="c0ffee<script>alert(1)</script>",
+        pr_title="PR <script>alert('xss')</script> Injection",
+        verdict="APPROVE",
+        total_findings=0,
+        findings_by_severity={},
+    )
+    client = TestClient(app)
+    resp = client.get("/dashboard")
+    assert resp.status_code == 200
+    assert "<script>alert('xss')</script>" not in resp.text
+    assert "&lt;script&gt;" in resp.text
+
+
 def test_webhook_unauthorized_with_wrong_sig():
     from app.config import settings
     orig_secret = settings.GITHUB_WEBHOOK_SECRET

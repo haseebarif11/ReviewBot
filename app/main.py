@@ -6,10 +6,12 @@ handles slash commands, and provides a monitoring dashboard.
 
 import hashlib
 import hmac
+import html
 import logging
 from typing import Any, Dict, Optional
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.templating import Jinja2Templates
 
 from app.config import settings
 from app.github_client.client import GitHubClient
@@ -29,6 +31,8 @@ app = FastAPI(
     description="Automated AI-Powered GitHub Pull Request Code Review Agent",
     version="0.1.0",
 )
+
+templates = Jinja2Templates(directory="templates")
 
 
 def verify_signature(payload_bytes: bytes, signature_header: Optional[str], secret: str) -> bool:
@@ -302,17 +306,17 @@ async def github_webhook(
 
 @app.get("/", response_class=HTMLResponse)
 @app.get("/dashboard", response_class=HTMLResponse)
-async def dashboard():
+async def dashboard(request: Request):
     """
     Modern web dashboard displaying ReviewBot statistics, verdicts, and recent review activity.
+    Uses Jinja2 templates and HTML escaping to prevent XSS vulnerabilities.
     """
     stats = history_tracker.get_stats()
-    verdicts = stats["verdicts"]
-    recent = stats["recent_reviews"]
+    recent = stats.get("recent_reviews", [])
 
-    rows_html = ""
+    processed_recent = []
     for r in recent:
-        v = r.get("verdict", "COMMENT")
+        v = str(r.get("verdict", "COMMENT"))
         if v == "APPROVE":
             badge_class = "badge-success"
             badge_text = "APPROVED"
@@ -324,251 +328,24 @@ async def dashboard():
             badge_text = "COMMENTED"
 
         findings = r.get("findings_by_severity", {})
-        crit = findings.get("CRITICAL", 0)
-        high = findings.get("HIGH", 0)
-        med = findings.get("MEDIUM", 0)
+        processed_recent.append({
+            "pr_key": html.escape(str(r.get("pr_key", ""))),
+            "title": html.escape(str(r.get("title", "N/A"))),
+            "commit_sha": html.escape(str(r.get("commit_sha", ""))),
+            "badge_class": badge_class,
+            "badge_text": badge_text,
+            "crit": int(findings.get("CRITICAL", 0)),
+            "high": int(findings.get("HIGH", 0)),
+            "med": int(findings.get("MEDIUM", 0)),
+            "timestamp": html.escape(str(r.get("timestamp", ""))),
+        })
 
-        rows_html += f"""
-        <tr>
-            <td class="pr-name">{r.get('pr_key', '')}</td>
-            <td>{r.get('title', 'N/A')}</td>
-            <td><code>{r.get('commit_sha', '')}</code></td>
-            <td><span class="badge {badge_class}">{badge_text}</span></td>
-            <td>
-                <span class="pill crit">{crit} crit</span>
-                <span class="pill high">{high} high</span>
-                <span class="pill med">{med} med</span>
-            </td>
-            <td class="timestamp">{r.get('timestamp', '')}</td>
-        </tr>
-        """
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard.html",
+        context={
+            "stats": stats,
+            "recent_reviews": processed_recent,
+        },
+    )
 
-    if not rows_html:
-        rows_html = '<tr><td colspan="6" style="text-align: center; color: #8b949e; padding: 2rem;">No pull requests reviewed yet. Connect a GitHub repository to begin!</td></tr>'
-
-    html_content = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ReviewBot - AI Code Review Dashboard</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <style>
-        :root {{
-            --bg: #0d1117;
-            --surface: #161b22;
-            --border: #30363d;
-            --text-primary: #f0f6fc;
-            --text-secondary: #8b949e;
-            --accent: #58a6ff;
-            --success: #3fb950;
-            --danger: #f85149;
-            --warning: #d29922;
-            --info: #a371f7;
-        }}
-        * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-        body {{
-            background-color: var(--bg);
-            color: var(--text-primary);
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            min-height: 100vh;
-            padding: 2.5rem 1.5rem;
-        }}
-        .container {{
-            max-width: 1200px;
-            margin: 0 auto;
-        }}
-        .header {{
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 2.5rem;
-            padding-bottom: 1.5rem;
-            border-bottom: 1px solid var(--border);
-        }}
-        .brand {{
-            display: flex;
-            align-items: center;
-            gap: 0.8rem;
-        }}
-        .brand h1 {{
-            font-size: 1.75rem;
-            font-weight: 700;
-            letter-spacing: -0.02em;
-            background: linear-gradient(135deg, #58a6ff 0%, #a371f7 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }}
-        .status-badge {{
-            display: inline-flex;
-            align-items: center;
-            gap: 0.4rem;
-            padding: 0.4rem 0.8rem;
-            border-radius: 999px;
-            background: rgba(63, 185, 80, 0.15);
-            border: 1px solid rgba(63, 185, 80, 0.3);
-            color: var(--success);
-            font-size: 0.85rem;
-            font-weight: 600;
-        }}
-        .status-dot {{
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: var(--success);
-            box-shadow: 0 0 8px var(--success);
-        }}
-        .grid {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-            gap: 1.25rem;
-            margin-bottom: 2.5rem;
-        }}
-        .card {{
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 1.5rem;
-            transition: transform 0.2s ease, border-color 0.2s ease;
-        }}
-        .card:hover {{
-            border-color: #58a6ff66;
-            transform: translateY(-2px);
-        }}
-        .card-title {{
-            font-size: 0.85rem;
-            font-weight: 500;
-            color: var(--text-secondary);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-bottom: 0.5rem;
-        }}
-        .card-value {{
-            font-size: 2.25rem;
-            font-weight: 700;
-            letter-spacing: -0.02em;
-        }}
-        .section-title {{
-            font-size: 1.25rem;
-            font-weight: 600;
-            margin-bottom: 1rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }}
-        .table-container {{
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            overflow: hidden;
-        }}
-        table {{
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 0.9rem;
-        }}
-        th {{
-            background: rgba(255, 255, 255, 0.02);
-            text-align: left;
-            padding: 1rem;
-            color: var(--text-secondary);
-            font-weight: 600;
-            border-bottom: 1px solid var(--border);
-        }}
-        td {{
-            padding: 1rem;
-            border-bottom: 1px solid var(--border);
-            vertical-align: middle;
-        }}
-        tr:last-child td {{
-            border-bottom: none;
-        }}
-        code {{
-            font-family: 'JetBrains Mono', monospace;
-            background: rgba(255, 255, 255, 0.06);
-            padding: 0.2rem 0.4rem;
-            border-radius: 4px;
-            font-size: 0.85rem;
-        }}
-        .badge {{
-            display: inline-block;
-            padding: 0.3rem 0.6rem;
-            border-radius: 6px;
-            font-size: 0.75rem;
-            font-weight: 600;
-            letter-spacing: 0.03em;
-        }}
-        .badge-success {{ background: rgba(63, 185, 80, 0.15); color: var(--success); border: 1px solid rgba(63, 185, 80, 0.3); }}
-        .badge-danger {{ background: rgba(248, 81, 73, 0.15); color: var(--danger); border: 1px solid rgba(248, 81, 73, 0.3); }}
-        .badge-info {{ background: rgba(163, 113, 247, 0.15); color: var(--info); border: 1px solid rgba(163, 113, 247, 0.3); }}
-        .pill {{
-            display: inline-block;
-            padding: 0.15rem 0.45rem;
-            border-radius: 4px;
-            font-size: 0.75rem;
-            font-weight: 500;
-            margin-right: 0.25rem;
-        }}
-        .pill.crit {{ background: rgba(248, 81, 73, 0.2); color: #ff7b72; }}
-        .pill.high {{ background: rgba(210, 153, 34, 0.2); color: #e3b341; }}
-        .pill.med {{ background: rgba(88, 166, 255, 0.2); color: #79c0ff; }}
-        .timestamp {{ color: var(--text-secondary); font-size: 0.8rem; }}
-        .pr-name {{ font-weight: 600; color: var(--accent); }}
-    </style>
-</head>
-<body>
-    <div class="container">
-        <header class="header">
-            <div class="brand">
-                <h1>ReviewBot</h1>
-                <span style="color: var(--text-secondary); font-size: 0.9rem;">AI Pull Request Reviewer</span>
-            </div>
-            <div class="status-badge">
-                <span class="status-dot"></span>
-                Webhook Receiver Active
-            </div>
-        </header>
-
-        <div class="grid">
-            <div class="card">
-                <div class="card-title">PRs Reviewed</div>
-                <div class="card-value" style="color: var(--accent);">{stats['total_prs']}</div>
-            </div>
-            <div class="card">
-                <div class="card-title">Total Reviews Executed</div>
-                <div class="card-value" style="color: #a371f7;">{stats['total_reviews']}</div>
-            </div>
-            <div class="card">
-                <div class="card-title">Bugs & Issues Caught</div>
-                <div class="card-value" style="color: var(--danger);">{stats['bugs_caught']}</div>
-            </div>
-            <div class="card">
-                <div class="card-title">Approvals Granted</div>
-                <div class="card-value" style="color: var(--success);">{verdicts.get('APPROVE', 0)}</div>
-            </div>
-        </div>
-
-        <h2 class="section-title">🕒 Recent Pull Request Reviews</h2>
-        <div class="table-container">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Repository / PR</th>
-                        <th>Title</th>
-                        <th>Commit</th>
-                        <th>Verdict</th>
-                        <th>Findings</th>
-                        <th>Timestamp</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {rows_html}
-                </tbody>
-            </table>
-        </div>
-    </div>
-</body>
-</html>
-"""
-    return HTMLResponse(content=html_content)
