@@ -96,6 +96,46 @@ async def process_pull_request_review(
         files_payload = await github_client.get_pull_request_files(owner, repo, pull_number, installation_id)
         logger.info(f"Fetched {len(files_payload)} changed file(s) for PR #{pull_number}.")
 
+        # Guardrail check: file count limit
+        total_files_count = len(files_payload)
+        if total_files_count > settings.MAX_FILES_PER_REVIEW:
+            msg = (
+                f"This PR is too large for automated review "
+                f"({total_files_count} files changed, limit is {settings.MAX_FILES_PER_REVIEW}). "
+                f"Consider splitting it into smaller PRs."
+            )
+            logger.warning(
+                f"Cost guardrail triggered for {owner}/{repo}#{pull_number}: {total_files_count} files exceeds limit of {settings.MAX_FILES_PER_REVIEW}."
+            )
+            await github_client.post_issue_comment(
+                owner=owner,
+                repo=repo,
+                issue_number=pull_number,
+                body=f"⚠️ **ReviewBot Guardrail Triggered**\n\n{msg}",
+                installation_id=installation_id,
+            )
+            return
+
+        # Guardrail check: cumulative diff size limit
+        total_diff_size_bytes = sum(len(f.get("patch", "").encode("utf-8")) for f in files_payload if f.get("patch"))
+        if total_diff_size_bytes > settings.MAX_DIFF_SIZE_BYTES:
+            msg = (
+                f"This PR is too large for automated review "
+                f"({total_diff_size_bytes} diff bytes, limit is {settings.MAX_DIFF_SIZE_BYTES} bytes). "
+                f"Consider splitting it into smaller PRs."
+            )
+            logger.warning(
+                f"Cost guardrail triggered for {owner}/{repo}#{pull_number}: diff size {total_diff_size_bytes} bytes exceeds limit of {settings.MAX_DIFF_SIZE_BYTES} bytes."
+            )
+            await github_client.post_issue_comment(
+                owner=owner,
+                repo=repo,
+                issue_number=pull_number,
+                body=f"⚠️ **ReviewBot Guardrail Triggered**\n\n{msg}",
+                installation_id=installation_id,
+            )
+            return
+
         # Step 2: Parse diffs
         parsed_files = diff_parser.parse_github_files(files_payload)
         file_diffs_map = {f.filename: f for f in parsed_files}

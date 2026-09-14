@@ -222,3 +222,95 @@ def test_pull_request_review_comment_ignore_dismissal(monkeypatch):
     finally:
         settings.GITHUB_WEBHOOK_SECRET = orig_secret
 
+
+def test_guardrail_file_count_exceeded(monkeypatch, caplog):
+    import asyncio
+    import logging
+    from unittest.mock import AsyncMock
+    from app.config import settings
+    from app.github_client.client import GitHubClient
+    from app.main import process_pull_request_review
+
+    mock_files = [{"filename": f"file_{i}.py", "patch": "+x"} for i in range(35)]
+    mock_get_files = AsyncMock(return_value=mock_files)
+    mock_post_comment = AsyncMock(return_value={"id": 123})
+    mock_post_review = AsyncMock()
+
+    monkeypatch.setattr(GitHubClient, "get_pull_request_files", mock_get_files)
+    monkeypatch.setattr(GitHubClient, "post_issue_comment", mock_post_comment)
+    monkeypatch.setattr(GitHubClient, "post_review", mock_post_review)
+
+    orig_limit = settings.MAX_FILES_PER_REVIEW
+    settings.MAX_FILES_PER_REVIEW = 30
+
+    try:
+        with caplog.at_level(logging.WARNING):
+            asyncio.run(
+                process_pull_request_review(
+                    owner="org",
+                    repo="large-repo",
+                    pull_number=10,
+                    commit_sha="abcdef9999",
+                    pr_title="Huge PR",
+                    pr_body="Body",
+                    force_review=True,
+                )
+            )
+
+        assert mock_post_comment.called
+        call_body = mock_post_comment.call_args.kwargs["body"]
+        assert "This PR is too large for automated review" in call_body
+        assert "35 files changed, limit is 30" in call_body
+        assert not mock_post_review.called
+        assert "Cost guardrail triggered" in caplog.text
+
+    finally:
+        settings.MAX_FILES_PER_REVIEW = orig_limit
+
+
+def test_guardrail_diff_size_exceeded(monkeypatch, caplog):
+    import asyncio
+    import logging
+    from unittest.mock import AsyncMock
+    from app.config import settings
+    from app.github_client.client import GitHubClient
+    from app.main import process_pull_request_review
+
+    huge_patch = "+" + ("x" * 600_000)
+    mock_files = [{"filename": "huge_file.py", "patch": huge_patch}]
+    mock_get_files = AsyncMock(return_value=mock_files)
+    mock_post_comment = AsyncMock(return_value={"id": 124})
+    mock_post_review = AsyncMock()
+
+    monkeypatch.setattr(GitHubClient, "get_pull_request_files", mock_get_files)
+    monkeypatch.setattr(GitHubClient, "post_issue_comment", mock_post_comment)
+    monkeypatch.setattr(GitHubClient, "post_review", mock_post_review)
+
+    orig_limit = settings.MAX_DIFF_SIZE_BYTES
+    settings.MAX_DIFF_SIZE_BYTES = 500_000
+
+    try:
+        with caplog.at_level(logging.WARNING):
+            asyncio.run(
+                process_pull_request_review(
+                    owner="org",
+                    repo="large-repo",
+                    pull_number=11,
+                    commit_sha="abcdef8888",
+                    pr_title="Big Diff PR",
+                    pr_body="Body",
+                    force_review=True,
+                )
+            )
+
+        assert mock_post_comment.called
+        call_body = mock_post_comment.call_args.kwargs["body"]
+        assert "This PR is too large for automated review" in call_body
+        assert "diff bytes, limit is 500000 bytes" in call_body
+        assert not mock_post_review.called
+        assert "Cost guardrail triggered" in caplog.text
+
+    finally:
+        settings.MAX_DIFF_SIZE_BYTES = orig_limit
+
+

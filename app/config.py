@@ -81,6 +81,14 @@ class Settings(BaseSettings):
         default=100_000,
         description="Max file size in bytes to review (skip huge files)"
     )
+    MAX_FILES_PER_REVIEW: int = Field(
+        default=30,
+        description="Maximum changed files allowed in a single PR review"
+    )
+    MAX_DIFF_SIZE_BYTES: int = Field(
+        default=500_000,
+        description="Maximum cumulative diff size in bytes to review"
+    )
     REVIEW_CONCURRENCY_LIMIT: int = Field(
         default=5,
         description="Maximum concurrent file review calls to Anthropic API"
