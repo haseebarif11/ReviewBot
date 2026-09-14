@@ -56,7 +56,7 @@ class Settings(BaseSettings):
         description="Anthropic API Key for Claude code review"
     )
     ANTHROPIC_MODEL: str = Field(
-        default="claude-3-5-sonnet-20241022",
+        default="claude-3-5-sonnet-latest",
         description="Claude model to use for reviews"
     )
     MAX_TOKENS_PER_FILE: int = Field(

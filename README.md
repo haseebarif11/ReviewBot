@@ -16,13 +16,16 @@ ReviewBot listens to GitHub Pull Request webhooks, analyzes code diff hunks with
   - Code readability & maintainability
   - Missing or incomplete test coverage
 - **📍 Precise Diff Line Mapping**: Parses unified diff hunks, verifies commentable line numbers in the new file, and prevents GitHub 422 errors by safely binding comments to hunk boundaries.
-- **🛡️ Noise Reduction & Severity Thresholding**: Configurable severity threshold (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFO`). Ignores lockfiles, minified bundles, and binary assets.
-- **💬 Slash Command Support**:
+- **🛡️ Noise Reduction & Cost Guardrails**: Configurable severity threshold (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`, `INFO`), ignored extensions/lockfiles, plus guardrails for `MAX_FILES_PER_REVIEW` and `MAX_DIFF_SIZE_BYTES` to prevent runaway token spend.
+- **🔒 Security & Prompt Injection Hardening**: All diffs, titles, and bodies are strictly delimited as `<untrusted_*>` data with explicit system instructions to ignore prompt injections and never obey untrusted instructions in PR content.
+- **⚡ Parallel File Reviews**: Reviews PR files concurrently with `asyncio.gather()` bounded by a configurable `asyncio.Semaphore` to optimize throughput without exceeding rate limits.
+- **🔁 Resilient API Calls**: Anthropic Claude API calls are wrapped in exponential backoff retry (3 attempts) using `tenacity` for transient rate limits (429) or server overloads (529).
+- **💬 Slash Command & Dismissal Support**:
   - `/reviewbot review` - Force trigger a fresh review on a PR
-  - `/reviewbot ignore` - Acknowledge or dismiss false positives
+  - `/reviewbot ignore` - Reply to an inline finding to dismiss it so it never reappears on subsequent reviews of that PR
   - `/reviewbot help` - Display available commands
-- **🔄 Force-Push & Deduplication Tracker**: Remembers reviewed commit SHAs to prevent duplicate review posts on PR updates or force-pushes.
-- **📊 Real-Time Web Dashboard**: Built-in modern web dashboard at `/dashboard` displaying review statistics, bugs caught, verdict breakdown, and recent PR history.
+- **🔄 Concurrency-Safe SQLite History Tracker**: Tracks reviewed commits, dismissed findings, and review statistics in SQLite with WAL mode and thread locks.
+- **📊 XSS-Protected Real-Time Web Dashboard**: Built-in modern web dashboard at `/dashboard` powered by Jinja2 templates with auto-escaping to safely display review statistics and PR history.
 - **🛠️ Standalone CLI Tool**: Review any PR URL directly (`python scripts/test_pr_review.py --pr <url> --dry-run`) without waiting for webhooks.
 
 ---
@@ -114,11 +117,22 @@ Configure the following variables in `.env`:
 | Variable | Description |
 | :--- | :--- |
 | `ANTHROPIC_API_KEY` | Your Anthropic API key (`sk-ant-...`) |
-| `ANTHROPIC_MODEL` | Claude model (default: `claude-3-5-sonnet-20241022`) |
+| `ANTHROPIC_MODEL` | Claude model (default: `claude-3-5-sonnet-latest`) |
+| `MAX_TOKENS_PER_FILE` | Max tokens budget in prompt per file (default: `4000`) |
+| `MAX_RESPONSE_TOKENS` | Max tokens for Claude review response (default: `4096`) |
 | `GITHUB_WEBHOOK_SECRET` | Secret token configured in GitHub webhook settings |
 | `GITHUB_TOKEN` | GitHub Personal Access Token (with `repo` / `pull_requests` write permissions) |
 | `SEVERITY_THRESHOLD` | Minimum severity for inline comments (`INFO`, `LOW`, `MEDIUM`, `HIGH`, `CRITICAL`) |
 | `AUTO_APPROVE_CLEAN_PR` | Automatically submit `APPROVE` verdict if no issues found (`true`/`false`) |
+| `MAX_FILES_PER_REVIEW` | Max changed files allowed in a single PR review before guardrail triggers (default: `30`) |
+| `MAX_DIFF_SIZE_BYTES` | Max cumulative diff size in bytes before guardrail triggers (default: `500000`) |
+| `REVIEW_CONCURRENCY_LIMIT` | Max concurrent file reviews dispatched to Claude via asyncio.gather (default: `5`) |
+
+### 🗄️ Storage Migration Note (JSON to SQLite)
+
+ReviewBot has migrated its deduplication, dismissal, and metrics persistence from a flat file (`review_history.json`) to a high-concurrency **SQLite database** (`review_history.db`).
+- **Concurrent Safety**: Employs SQLite WAL (Write-Ahead Logging) mode alongside re-entrant threading locks to guarantee safe concurrent writes when multiple PR reviews run concurrently.
+- **Automatic Migration**: Any existing `review_history.json` file is automatically detected and migrated into SQLite on first startup without data loss.
 
 #### GitHub App Auth (Alternative for Multi-Repo Production):
 ```env
