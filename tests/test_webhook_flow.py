@@ -130,3 +130,95 @@ def test_webhook_pr_opened_accepted():
         assert data["repo"] == "octocat/my-repo"
     finally:
         settings.GITHUB_WEBHOOK_SECRET = orig_secret
+
+
+def test_pull_request_review_comment_ignore_dismissal(monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.config import settings
+    from app.github_client.client import GitHubClient
+    from app.review_agent.history import history_tracker
+    from app.review_agent.schemas import Category, FileReviewFinding, FileReviewResult, Severity
+
+    secret = "test_secret_123"
+    orig_secret = settings.GITHUB_WEBHOOK_SECRET
+    settings.GITHUB_WEBHOOK_SECRET = secret
+
+    mock_orig_comment = {
+        "id": 555,
+        "path": "app/vuln.py",
+        "line": 42,
+        "body": "### 🚨 **CRITICAL** | SECURITY\n**SQL Injection Risk**\nUnsanitized input formatted into query."
+    }
+
+    mock_get_comment = AsyncMock(return_value=mock_orig_comment)
+    mock_react = AsyncMock(return_value={"id": 1})
+    monkeypatch.setattr(GitHubClient, "get_review_comment", mock_get_comment)
+    monkeypatch.setattr(GitHubClient, "create_review_comment_reaction", mock_react)
+
+    try:
+        client = TestClient(app)
+        payload = {
+            "action": "created",
+            "comment": {
+                "id": 999,
+                "in_reply_to_id": 555,
+                "body": "/reviewbot ignore This is intentional for test fixture",
+            },
+            "pull_request": {
+                "number": 77
+            },
+            "repository": {
+                "name": "sec-repo",
+                "owner": {"login": "sec-org"}
+            }
+        }
+        payload_bytes = json.dumps(payload).encode()
+        sig = generate_test_signature(secret, payload_bytes)
+
+        resp = client.post(
+            "/webhook",
+            content=payload_bytes,
+            headers={
+                "X-Hub-Signature-256": sig,
+                "X-GitHub-Event": "pull_request_review_comment",
+                "Content-Type": "application/json"
+            }
+        )
+        assert resp.status_code == 200
+        assert resp.json()["message"] == "Dismissed finding via review comment."
+
+        # Verify finding was recorded as dismissed in history
+        expected_hash = history_tracker.finding_hash("app/vuln.py", 42, "SQL Injection Risk")
+        assert history_tracker.is_finding_dismissed("sec-org", "sec-repo", 77, expected_hash) is True
+
+        # Verify on subsequent review of the same PR, dismissed finding is filtered out
+        finding_dismissed = FileReviewFinding(
+            file="app/vuln.py",
+            line=42,
+            severity=Severity.CRITICAL,
+            category=Category.SECURITY,
+            title="SQL Injection Risk",
+            comment="Old issue"
+        )
+        finding_new = FileReviewFinding(
+            file="app/vuln.py",
+            line=50,
+            severity=Severity.HIGH,
+            category=Category.LOGIC_BUG,
+            title="Resource Leak",
+            comment="Unclosed file"
+        )
+
+        res = FileReviewResult(file="app/vuln.py", summary="Test", findings=[finding_dismissed, finding_new])
+        filtered = [
+            f for f in res.findings
+            if not history_tracker.is_finding_dismissed(
+                "sec-org", "sec-repo", 77, history_tracker.finding_hash(f.file, f.line, f.title)
+            )
+        ]
+        assert len(filtered) == 1
+        assert filtered[0].title == "Resource Leak"
+        assert filtered[0].line == 50
+    finally:
+        settings.GITHUB_WEBHOOK_SECRET = orig_secret
+

@@ -266,8 +266,42 @@ class GitHubClient:
         )
         return resp.json()
 
+    async def get_review_comment(
+        self,
+        owner: str,
+        repo: str,
+        comment_id: int,
+        installation_id: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Fetches a specific pull request review comment by ID."""
+        resp = await self._request(
+            "GET",
+            f"/repos/{owner}/{repo}/pulls/comments/{comment_id}",
+            installation_id,
+        )
+        return resp.json()
+
+    async def create_review_comment_reaction(
+        self,
+        owner: str,
+        repo: str,
+        comment_id: int,
+        content: str = "+1",
+        installation_id: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Adds a reaction to a pull request review comment."""
+        payload = {"content": content}
+        resp = await self._request(
+            "POST",
+            f"/repos/{owner}/{repo}/pulls/comments/{comment_id}/reactions",
+            installation_id,
+            headers={"Accept": "application/vnd.github.squirrel-girl-preview+json"},
+            json_data=payload,
+        )
+        return resp.json()
+
     async def create_reaction(self, owner: str, repo: str, comment_id: int, content: str = "+1", installation_id: Optional[int] = None) -> Dict[str, Any]:
-        """Adds a reaction (+1, eyes, heart, etc.) to an issue or review comment."""
+        """Adds a reaction (+1, eyes, heart, etc.) to an issue comment."""
         payload = {"content": content}
         resp = await self._request(
             "POST",
@@ -277,3 +311,4 @@ class GitHubClient:
             json_data=payload
         )
         return resp.json()
+

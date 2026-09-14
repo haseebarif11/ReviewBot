@@ -8,6 +8,7 @@ import hashlib
 import hmac
 import html
 import logging
+import re
 from typing import Any, Dict, Optional
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -299,6 +300,83 @@ async def github_webhook(
                     "- `/reviewbot help`: Display available commands."
                 )
                 background_tasks.add_task(github_client.post_issue_comment, owner, repo, pull_number, help_msg)
+                return JSONResponse(status_code=200, content={"message": "Help comment queued."})
+
+    # Handle inline PR Review Comment commands (e.g. /reviewbot ignore replying to an inline finding)
+    elif event_type == "pull_request_review_comment":
+        action = payload.get("action")
+        comment = payload.get("comment", {})
+        comment_body = comment.get("body", "").strip()
+
+        if action == "created" and comment_body.startswith("/reviewbot"):
+            cmd_parts = comment_body.split()
+            command = cmd_parts[1].lower() if len(cmd_parts) > 1 else "help"
+
+            repository = payload.get("repository", {})
+            installation = payload.get("installation", {})
+            pr = payload.get("pull_request", {})
+            owner = repository.get("owner", {}).get("login")
+            repo = repository.get("name")
+            pull_number = pr.get("number")
+            comment_id = comment.get("id")
+            in_reply_to_id = comment.get("in_reply_to_id")
+            installation_id = installation.get("id")
+
+            github_client = GitHubClient(installation_id=installation_id)
+
+            if command == "ignore":
+                if in_reply_to_id and owner and repo and pull_number:
+                    try:
+                        orig_comment = await github_client.get_review_comment(
+                            owner, repo, in_reply_to_id, installation_id
+                        )
+                        path = orig_comment.get("path") or comment.get("path", "")
+                        raw_line = orig_comment.get("line") or orig_comment.get("original_line") or comment.get("line") or 1
+                        line = int(raw_line)
+                        orig_body = orig_comment.get("body", "")
+
+                        # Extract finding title (appears as **{title}** on its own line)
+                        title_match = re.search(r"^\*\*([^\*\n]+)\*\*", orig_body, re.MULTILINE)
+                        if title_match:
+                            title = title_match.group(1).strip()
+                        else:
+                            tokens = re.findall(r"\*\*([^\*\n]+)\*\*", orig_body)
+                            title = ""
+                            for tok in tokens:
+                                if tok.strip().upper() not in ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO", "NOTE"):
+                                    title = tok.strip()
+                                    break
+                            if not title and tokens:
+                                title = tokens[0].strip()
+
+                        f_hash = history_tracker.finding_hash(path, line, title)
+                        history_tracker.dismiss_finding(owner, repo, pull_number, f_hash)
+                        logger.info(
+                            f"Dismissed finding {f_hash} ({title} in {path}:{line}) for PR {owner}/{repo}#{pull_number}"
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to lookup original review comment {in_reply_to_id}: {e}")
+
+                if comment_id and owner and repo:
+                    background_tasks.add_task(
+                        github_client.create_review_comment_reaction,
+                        owner,
+                        repo,
+                        comment_id,
+                        "+1",
+                        installation_id,
+                    )
+                return JSONResponse(status_code=200, content={"message": "Dismissed finding via review comment."})
+
+            elif command == "help":
+                help_msg = (
+                    "### 🤖 ReviewBot Commands\n"
+                    "- `/reviewbot ignore`: Reply to an inline finding to dismiss it.\n"
+                    "- `/reviewbot review`: Force trigger a fresh automated code review.\n"
+                    "- `/reviewbot help`: Display available commands."
+                )
+                if pull_number and owner and repo:
+                    background_tasks.add_task(github_client.post_issue_comment, owner, repo, pull_number, help_msg)
                 return JSONResponse(status_code=200, content={"message": "Help comment queued."})
 
     return JSONResponse(status_code=200, content={"message": f"Event '{event_type}' received and ignored."})
