@@ -3,9 +3,9 @@ Configuration management for ReviewBot using Pydantic Settings.
 Reads configuration from environment variables or .env file.
 """
 
-from typing import List, Optional
+from typing import Annotated, List, Optional
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -95,17 +95,19 @@ class Settings(BaseSettings):
     )
 
     # Ignored extensions & filenames
-    IGNORE_EXTENSIONS: List[str] = Field(
+    IGNORE_EXTENSIONS: Annotated[List[str], NoDecode] = Field(
         default=[
             ".lock", ".min.js", ".min.css", ".map", ".svg", ".png",
             ".jpg", ".jpeg", ".gif", ".ico", ".woff", ".woff2", ".ttf", ".eot"
-        ]
+        ],
+        description="File extensions to skip during review"
     )
-    IGNORE_FILES: List[str] = Field(
+    IGNORE_FILES: Annotated[List[str], NoDecode] = Field(
         default=[
             "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock",
             "Cargo.lock", "Pipfile.lock", "composer.lock"
-        ]
+        ],
+        description="Filenames to skip during review"
     )
 
     @field_validator("IGNORE_EXTENSIONS", mode="before")
