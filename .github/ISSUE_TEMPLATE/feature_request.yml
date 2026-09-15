@@ -1,0 +1,26 @@
+name: "✨ Feature Request"
+description: "Suggest a new idea, integration, or improvement for ReviewBot."
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: Thank you for helping shape the future of ReviewBot!
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: Is your feature request related to a problem or limitation?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe the solution or new feature you would like to see implemented.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Any alternative solutions or workarounds you have considered.
