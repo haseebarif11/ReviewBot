@@ -26,6 +26,17 @@ def test_comma_separated_env_vars_parsed_without_json_decode_error():
         assert settings.IGNORE_EXTENSIONS == [".lock", ".min.js", ".min.css", ".map"]
         assert settings.IGNORE_FILES == ["package-lock.json", "yarn.lock", "Cargo.lock"]
 
+def test_json_array_env_vars_parsed():
+    """Verify JSON-formatted array env vars also parse properly."""
+    env_overrides = {
+        "IGNORE_EXTENSIONS": '["*.tmp", "*.bak"]',
+        "IGNORE_FILES": '["secrets.txt", "credentials.json"]',
+    }
+    with mock.patch.dict(os.environ, env_overrides, clear=True):
+        settings = Settings()
+        assert settings.IGNORE_EXTENSIONS == ["*.tmp", "*.bak"]
+        assert settings.IGNORE_FILES == ["secrets.txt", "credentials.json"]
+
 
 def test_severity_threshold_validation():
     """Verify valid severity levels and fallback to MEDIUM for invalid ones."""
