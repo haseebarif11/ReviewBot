@@ -15,6 +15,17 @@ def test_default_ignore_lists():
         assert ".min.js" in settings.IGNORE_EXTENSIONS
         assert "package-lock.json" in settings.IGNORE_FILES
 
+def test_comma_separated_env_vars_parsed_without_json_decode_error():
+    """Verify comma-separated env vars from .env.example parse correctly without json.loads crashing."""
+    env_overrides = {
+        "IGNORE_EXTENSIONS": ".lock, .min.js, .min.css, .map",
+        "IGNORE_FILES": "package-lock.json, yarn.lock, Cargo.lock",
+    }
+    with mock.patch.dict(os.environ, env_overrides, clear=True):
+        settings = Settings()
+        assert settings.IGNORE_EXTENSIONS == [".lock", ".min.js", ".min.css", ".map"]
+        assert settings.IGNORE_FILES == ["package-lock.json", "yarn.lock", "Cargo.lock"]
+
 
 def test_severity_threshold_validation():
     """Verify valid severity levels and fallback to MEDIUM for invalid ones."""
