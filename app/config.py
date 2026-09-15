@@ -3,6 +3,7 @@ Configuration management for ReviewBot using Pydantic Settings.
 Reads configuration from environment variables or .env file.
 """
 
+import json
 from typing import Annotated, List, Optional
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -114,14 +115,30 @@ class Settings(BaseSettings):
     @classmethod
     def parse_ignore_extensions(cls, v):
         if isinstance(v, str):
-            return [ext.strip() for ext in v.split(",") if ext.strip()]
+            v_s = v.strip()
+            if v_s.startswith("[") and v_s.endswith("]"):
+                try:
+                    parsed = json.loads(v_s)
+                    if isinstance(parsed, list):
+                        return [str(ext).strip() for ext in parsed if str(ext).strip()]
+                except Exception:
+                    pass
+            return [ext.strip() for ext in v_s.split(",") if ext.strip()]
         return v
 
     @field_validator("IGNORE_FILES", mode="before")
     @classmethod
     def parse_ignore_files(cls, v):
         if isinstance(v, str):
-            return [f.strip() for f in v.split(",") if f.strip()]
+            v_s = v.strip()
+            if v_s.startswith("[") and v_s.endswith("]"):
+                try:
+                    parsed = json.loads(v_s)
+                    if isinstance(parsed, list):
+                        return [str(f).strip() for f in parsed if str(f).strip()]
+                except Exception:
+                    pass
+            return [f.strip() for f in v_s.split(",") if f.strip()]
         return v
 
     @field_validator("SEVERITY_THRESHOLD")
