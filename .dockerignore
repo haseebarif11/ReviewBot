@@ -1,0 +1,15 @@
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.venv
+env/
+venv/
+.env
+review_history.db
+*.db
+ReviewBot.zip
+.git
+.github
+tests/
