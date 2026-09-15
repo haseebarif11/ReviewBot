@@ -490,3 +490,13 @@ async def dashboard(request: Request):
         },
     )
 
+
+@app.get("/api/stats")
+async def api_stats():
+    """
+    JSON API endpoint returning review statistics, verdict breakdown, and recent history.
+    Useful for external monitoring, health checks, or metrics dashboards.
+    """
+    return history_tracker.get_stats()
+
+
