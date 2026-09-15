@@ -1,5 +1,10 @@
 # ReviewBot 🤖
 
+[![CI](https://github.com/haseebarif11/ReviewBot/actions/workflows/ci.yml/badge.svg)](https://github.com/haseebarif11/ReviewBot/actions/workflows/ci.yml)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688.svg?logo=fastapi)](https://fastapi.tiangolo.com)
+[![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11-blue.svg?logo=python)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 > **Automated AI-Powered GitHub Pull Request Code Review Agent built in Python, FastAPI, and Anthropic Claude.**
 
 ReviewBot listens to GitHub Pull Request webhooks, analyzes code diff hunks with senior-engineer-level scrutiny (detecting bugs, security flaws, missing error handling, and performance bottlenecks), and automatically posts structured reviews—including inline comments anchored to specific lines and an executive summary verdict.
@@ -166,14 +171,30 @@ python scripts/test_pr_review.py --diff-file fixtures/vulnerable_diff.diff --dry
 
 ## 🌐 Running the Webhook Server
 
-Start the FastAPI server:
-
+### Option A: Local Development (Uvicorn)
 ```bash
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-- **Health Check**: `http://localhost:8000/health`
-- **Dashboard UI**: `http://localhost:8000/dashboard`
+### Option B: Docker Container
+```bash
+# Build image
+docker build -t reviewbot .
+
+# Run container
+docker run -d --name reviewbot -p 8000:8000 --env-file .env reviewbot
+```
+
+### Option C: Docker Compose
+```bash
+docker compose up -d
+```
+
+### Available Endpoints:
+- **Health Check**: `GET http://localhost:8000/health`
+- **Metrics & Stats**: `GET http://localhost:8000/api/stats`
+- **Dashboard UI**: `GET http://localhost:8000/dashboard`
+- **Webhook Receiver**: `POST http://localhost:8000/webhook`
 
 ### Expose with ngrok (for local testing):
 ```bash
