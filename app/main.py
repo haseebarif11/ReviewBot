@@ -12,7 +12,7 @@ import logging
 import re
 from typing import Any, Dict, Optional
 from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request, status
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
 
 from app.config import settings
@@ -498,5 +498,47 @@ async def api_stats():
     Useful for external monitoring, health checks, or metrics dashboards.
     """
     return history_tracker.get_stats()
+
+
+@app.get("/metrics", response_class=PlainTextResponse)
+async def metrics():
+    """
+    Prometheus-compatible plain-text metrics exposition endpoint.
+    Exposes key counters for reviews, verdicts, findings, and tokens.
+    """
+    stats = history_tracker.get_stats()
+    verdicts = stats.get("verdicts", {})
+    findings = stats.get("findings_by_severity", {})
+
+    lines = [
+        "# HELP reviewbot_reviews_total Total number of pull request reviews performed.",
+        "# TYPE reviewbot_reviews_total counter",
+        f"reviewbot_reviews_total {stats.get('total_reviews', 0)}",
+        "",
+        "# HELP reviewbot_reviews_by_verdict_total Number of reviews grouped by verdict.",
+        "# TYPE reviewbot_reviews_by_verdict_total counter",
+        f'reviewbot_reviews_by_verdict_total{{verdict="APPROVE"}} {verdicts.get("APPROVE", 0)}',
+        f'reviewbot_reviews_by_verdict_total{{verdict="REQUEST_CHANGES"}} {verdicts.get("REQUEST_CHANGES", 0)}',
+        f'reviewbot_reviews_by_verdict_total{{verdict="COMMENT"}} {verdicts.get("COMMENT", 0)}',
+        "",
+        "# HELP reviewbot_findings_total Total number of review findings grouped by severity.",
+        "# TYPE reviewbot_findings_total counter",
+        f'reviewbot_findings_total{{severity="CRITICAL"}} {findings.get("CRITICAL", 0)}',
+        f'reviewbot_findings_total{{severity="HIGH"}} {findings.get("HIGH", 0)}',
+        f'reviewbot_findings_total{{severity="MEDIUM"}} {findings.get("MEDIUM", 0)}',
+        f'reviewbot_findings_total{{severity="LOW"}} {findings.get("LOW", 0)}',
+        f'reviewbot_findings_total{{severity="INFO"}} {findings.get("INFO", 0)}',
+        "",
+        "# HELP reviewbot_tokens_used_total Total tokens consumed during AI code reviews.",
+        "# TYPE reviewbot_tokens_used_total counter",
+        f"reviewbot_tokens_used_total {stats.get('total_tokens_used', 0)}",
+        "",
+        "# HELP reviewbot_dismissed_findings_total Total count of user-dismissed findings.",
+        "# TYPE reviewbot_dismissed_findings_total counter",
+        f"reviewbot_dismissed_findings_total {stats.get('dismissed_findings_count', 0)}",
+        "",
+    ]
+    return PlainTextResponse("\n".join(lines), media_type="text/plain; version=0.0.4; charset=utf-8")
+
 
 

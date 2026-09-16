@@ -75,3 +75,25 @@ def test_health_check_endpoint(client):
     assert data["status"] == "healthy"
     assert data["service"] == "ReviewBot"
     assert "version" in data
+
+
+def test_metrics_endpoint(client):
+    """Verify GET /metrics returns Prometheus formatted plain text metrics."""
+    mock_stats = {
+        "total_prs": 2,
+        "total_reviews": 4,
+        "total_tokens_used": 1500,
+        "dismissed_findings_count": 1,
+        "verdicts": {"APPROVE": 2, "REQUEST_CHANGES": 1, "COMMENT": 1},
+        "findings_by_severity": {"CRITICAL": 1, "HIGH": 2, "MEDIUM": 1, "LOW": 0, "INFO": 0},
+    }
+    with mock.patch("app.main.history_tracker.get_stats", return_value=mock_stats):
+        response = client.get("/metrics")
+        assert response.status_code == 200
+        assert "text/plain" in response.headers.get("content-type", "")
+        text = response.text
+        assert "reviewbot_reviews_total 4" in text
+        assert 'reviewbot_reviews_by_verdict_total{verdict="APPROVE"} 2' in text
+        assert 'reviewbot_findings_total{severity="CRITICAL"} 1' in text
+        assert "reviewbot_tokens_used_total 1500" in text
+
