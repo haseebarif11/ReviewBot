@@ -59,7 +59,7 @@ ReviewBot/
 ├── app/
 │   ├── __init__.py
 │   ├── config.py                 # Pydantic Settings & environment config
-│   ├── main.py                   # FastAPI server, webhook receiver, dashboard UI
+│   ├── main.py                   # FastAPI server, webhook receiver, dashboard UI, metrics
 │   ├── github_client/
 │   │   ├── __init__.py
 │   │   ├── client.py             # Dual auth GitHub REST API client (PAT & App)
@@ -78,14 +78,24 @@ ReviewBot/
 │   └── vulnerable_diff.diff      # Sample diff with SQLi, secrets, and leaks
 ├── scripts/
 │   └── test_pr_review.py         # Standalone CLI tool to review any PR URL
+├── templates/
+│   └── dashboard.html            # Web dashboard HTML template
 ├── tests/
 │   ├── test_cli.py               # CLI runner & URL parser tests
+│   ├── test_config.py            # Environment config validation tests
+│   ├── test_dashboard.py         # Dashboard, health, and metrics route tests
 │   ├── test_diff_parser.py       # Diff parser & line mapping tests
 │   ├── test_github_client.py     # GitHub REST client unit tests
+│   ├── test_history_sqlite.py    # Deduplication & SQLite history tests
 │   ├── test_review_agent.py      # Claude response parser & aggregation tests
 │   └── test_webhook_flow.py      # HMAC signature & webhook flow integration tests
 ├── .env.example                  # Environment configuration template
 ├── .gitignore
+├── .pre-commit-config.yaml       # Git pre-commit hooks configuration
+├── Dockerfile                    # Containerization definition
+├── docker-compose.yml            # Multi-service orchestration
+├── Makefile                      # Developer shortcut and lifecycle targets
+├── pyproject.toml                # Project metadata & tool settings
 ├── requirements.txt
 └── README.md
 ```
@@ -192,9 +202,25 @@ docker compose up -d
 
 ### Available Endpoints:
 - **Health Check**: `GET http://localhost:8000/health`
-- **Metrics & Stats**: `GET http://localhost:8000/api/stats`
 - **Dashboard UI**: `GET http://localhost:8000/dashboard`
+- **JSON Statistics**: `GET http://localhost:8000/api/stats`
+- **Prometheus Metrics**: `GET http://localhost:8000/metrics`
 - **Webhook Receiver**: `POST http://localhost:8000/webhook`
+
+### 🛠️ Developer Workflow (`Makefile`)
+
+A `Makefile` is included with convenient shortcuts for daily development:
+
+```bash
+make help          # View all available targets
+make install       # Install Python dependencies
+make run           # Start local FastAPI development server with hot-reload
+make test          # Run full automated test suite
+make lint          # Run Python syntax compilation checks
+make docker-up     # Launch containerized ReviewBot with Docker Compose
+make docker-down   # Tear down Docker Compose containers
+make clean         # Clean up bytecode and cache directories
+```
 
 ### Expose with ngrok (for local testing):
 ```bash
