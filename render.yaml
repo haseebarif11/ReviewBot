@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: reviewbot
+    runtime: docker
+    plan: starter
+    healthCheckPath: /health
+    disk:
+      name: reviewbot-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GITHUB_WEBHOOK_SECRET
+        sync: false
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: GITHUB_APP_ID
+        sync: false
+      - key: GITHUB_APP_PRIVATE_KEY
+        sync: false
+      - key: HISTORY_DB_PATH
+        value: /data/review_history.db

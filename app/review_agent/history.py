@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("reviewbot.history")
 
-HISTORY_DB_FILE = "review_history.db"
+HISTORY_DB_FILE = os.environ.get("HISTORY_DB_PATH", "review_history.db")
 LEGACY_JSON_FILE = "review_history.json"
 
 
