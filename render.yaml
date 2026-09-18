@@ -9,7 +9,7 @@ services:
       mountPath: /data
       sizeGB: 1
     envVars:
-      - key: ANTHROPIC_API_KEY
+      - key: GEMINI_API_KEY
         sync: false
       - key: GITHUB_WEBHOOK_SECRET
         sync: false

@@ -7,7 +7,8 @@ import json
 import logging
 import re
 from typing import Any, Dict, List, Optional
-import anthropic
+from google import genai
+from google.genai import errors, types
 from tenacity import AsyncRetrying, retry_if_exception, stop_after_attempt, wait_exponential
 
 from app.config import settings
@@ -27,18 +28,18 @@ from app.review_agent.schemas import (
 logger = logging.getLogger("reviewbot.agent")
 
 
-def _is_retryable_anthropic_error(exc: BaseException) -> bool:
-    """Identifies transient Anthropic API and HTTP status errors suitable for retry."""
-    if isinstance(exc, (anthropic.RateLimitError, anthropic.InternalServerError, anthropic.APITimeoutError, anthropic.APIConnectionError)):
+def _is_retryable_gemini_error(exc: BaseException) -> bool:
+    """Identifies transient Gemini API and HTTP status errors suitable for retry."""
+    if isinstance(exc, errors.ServerError):
         return True
-    if isinstance(exc, anthropic.APIStatusError) and exc.status_code in (429, 500, 502, 503, 504, 529):
+    if isinstance(exc, errors.APIError) and exc.code in (429, 500, 502, 503, 504):
         return True
     return False
 
 
 class ReviewAgent:
     """
-    AI-powered review agent using Anthropic's Claude to review PR diffs.
+    AI-powered review agent using Google Gemini to review PR diffs.
     """
 
     def __init__(
@@ -48,15 +49,15 @@ class ReviewAgent:
         severity_threshold: Optional[str] = None,
         auto_approve_clean_pr: Optional[bool] = None,
     ):
-        self.api_key = api_key or settings.ANTHROPIC_API_KEY
-        self.model = model or settings.ANTHROPIC_MODEL
+        self.api_key = api_key or settings.GEMINI_API_KEY
+        self.model = model or settings.GEMINI_MODEL
         self.severity_threshold = (severity_threshold or settings.SEVERITY_THRESHOLD).upper()
         self.auto_approve_clean_pr = (
             auto_approve_clean_pr if auto_approve_clean_pr is not None else settings.AUTO_APPROVE_CLEAN_PR
         )
-        self.client: Optional[anthropic.AsyncAnthropic] = None
+        self.client: Optional[genai.Client] = None
         if self.api_key:
-            self.client = anthropic.AsyncAnthropic(api_key=self.api_key)
+            self.client = genai.Client(api_key=self.api_key)
 
     def _extract_json(self, raw_text: str) -> Dict[str, Any]:
         """
@@ -88,7 +89,7 @@ class ReviewAgent:
         stripped = text.rstrip()
         if not (stripped.endswith("}") or stripped.endswith("```")):
             logger.warning(
-                f"Anthropic response appears to have been truncated before completing JSON object "
+                f"Gemini response appears to have been truncated before completing JSON object "
                 f"(length {len(raw_text)} chars, ends with: {stripped[-50:]!r})"
             )
         else:
@@ -103,7 +104,7 @@ class ReviewAgent:
         pr_body: str = "",
     ) -> FileReviewResult:
         """
-        Analyzes a single changed file diff using Claude.
+        Analyzes a single changed file diff using Gemini.
         """
         if file_diff.is_ignored:
             return FileReviewResult(
@@ -113,7 +114,7 @@ class ReviewAgent:
             )
 
         if not self.client:
-            raise ValueError("Anthropic API Key is not configured. Set ANTHROPIC_API_KEY.")
+            raise ValueError("Gemini API Key is not configured. Set GEMINI_API_KEY.")
 
         prompt = build_file_review_prompt(
             file_diff=file_diff,
@@ -126,20 +127,23 @@ class ReviewAgent:
             async for attempt in AsyncRetrying(
                 stop=stop_after_attempt(3),
                 wait=wait_exponential(multiplier=1, min=1, max=10),
-                retry=retry_if_exception(_is_retryable_anthropic_error),
+                retry=retry_if_exception(_is_retryable_gemini_error),
                 reraise=True,
             ):
                 with attempt:
-                    response = await self.client.messages.create(
+                    response = await self.client.aio.models.generate_content(
                         model=self.model,
-                        max_tokens=settings.MAX_RESPONSE_TOKENS,
-                        system=REVIEWER_SYSTEM_PROMPT,
-                        messages=[{"role": "user", "content": prompt}],
-                        temperature=0.1,
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            system_instruction=REVIEWER_SYSTEM_PROMPT,
+                            temperature=0.1,
+                            max_output_tokens=settings.MAX_RESPONSE_TOKENS,
+                            response_mime_type="application/json",
+                        ),
                     )
-            raw_response = response.content[0].text
+            raw_response = response.text
         except Exception as e:
-            logger.error(f"Anthropic API call failed for file {file_diff.filename} after retries: {e}")
+            logger.error(f"Gemini API call failed for file {file_diff.filename} after retries: {e}")
             return FileReviewResult(
                 file=file_diff.filename,
                 summary=f"Analysis failed: {str(e)}",

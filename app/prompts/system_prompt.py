@@ -1,6 +1,6 @@
 """
 System prompt instructions for ReviewBot.
-Configures Claude as a Senior Staff Code Reviewer & Security Auditor.
+Configures Gemini as a Senior Staff Code Reviewer & Security Auditor.
 """
 
 REVIEWER_SYSTEM_PROMPT = """You are ReviewBot, an expert Senior Staff Software Engineer and Application Security Auditor performing an automated code review on a GitHub Pull Request.

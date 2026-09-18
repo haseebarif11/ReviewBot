@@ -76,7 +76,7 @@ async def process_pull_request_review(
     1. Check deduplication history
     2. Fetch PR files and patches
     3. Parse diff hunks and valid line mappings
-    4. Review files with Claude (Anthropic SDK)
+    4. Review files with Gemini
     5. Aggregate and post review to GitHub
     6. Record metrics in history tracker
     """
@@ -140,7 +140,7 @@ async def process_pull_request_review(
         parsed_files = diff_parser.parse_github_files(files_payload)
         file_diffs_map = {f.filename: f for f in parsed_files}
 
-        # Step 3: Review each file concurrently with Claude (bounded by semaphore)
+        # Step 3: Review each file concurrently with Gemini (bounded by semaphore)
         semaphore = asyncio.Semaphore(settings.REVIEW_CONCURRENCY_LIMIT)
 
         async def _review_worker(pf):
@@ -149,7 +149,7 @@ async def process_pull_request_review(
                 return None
 
             async with semaphore:
-                logger.info(f"Analyzing {pf.filename} with Claude (concurrency limit: {settings.REVIEW_CONCURRENCY_LIMIT})...")
+                logger.info(f"Analyzing {pf.filename} with Gemini (concurrency limit: {settings.REVIEW_CONCURRENCY_LIMIT})...")
                 try:
                     res = await review_agent.review_file(pf, pr_title=pr_title, pr_body=pr_body)
                 except Exception as e:
@@ -232,7 +232,7 @@ async def health_check():
         "status": "healthy",
         "service": "ReviewBot",
         "version": "0.1.0",
-        "claude_model": settings.ANTHROPIC_MODEL,
+        "gemini_model": settings.GEMINI_MODEL,
         "severity_threshold": settings.SEVERITY_THRESHOLD,
     }
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 CLI test utility to run ReviewBot directly on a GitHub Pull Request URL or local diff file.
-Supports --dry-run to test Claude review output without posting comments to GitHub.
+Supports --dry-run to test Gemini review output without posting comments to GitHub.
 
 Examples:
   python scripts/test_pr_review.py --pr https://github.com/owner/repo/pull/42 --dry-run
@@ -20,6 +20,13 @@ from typing import Optional
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
 
 from app.config import settings
 from app.github_client.client import GitHubClient
@@ -71,7 +78,7 @@ async def run_review_on_pr(
             print(f"⏩ Skipping ignored file: {pf.filename} ({pf.ignore_reason})")
             continue
 
-        print(f"🧠 Analyzing {pf.filename} with Claude ({agent.model})...")
+        print(f"🧠 Analyzing {pf.filename} with Gemini ({agent.model})...")
         res = await agent.review_file(pf, pr_title=title, pr_body=body)
         print(f"   ↳ Found {len(res.findings)} finding(s). Summary: {res.summary}")
         file_results.append(res)
@@ -129,7 +136,7 @@ async def run_review_on_diff_file(diff_path: str, filename: str = "sample_file.p
         patch=patch_content,
     )
 
-    print(f"🧠 Analyzing {filename} with Claude ({agent.model})...")
+    print(f"🧠 Analyzing {filename} with Gemini ({agent.model})...")
     res = await agent.review_file(parsed_file, pr_title="Local Diff Test", pr_body="Testing with local diff file")
 
     aggregate = agent.aggregate_reviews([res], {filename: parsed_file}, severity_threshold=severity_threshold)

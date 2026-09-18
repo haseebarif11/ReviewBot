@@ -51,14 +51,14 @@ class Settings(BaseSettings):
         description="GitHub App Installation ID"
     )
 
-    # Anthropic Claude configuration
-    ANTHROPIC_API_KEY: Optional[str] = Field(
+    # Google Gemini configuration
+    GEMINI_API_KEY: Optional[str] = Field(
         default=None,
-        description="Anthropic API Key for Claude code review"
+        description="Google Gemini API Key for code review"
     )
-    ANTHROPIC_MODEL: str = Field(
-        default="claude-3-5-sonnet-latest",
-        description="Claude model to use for reviews"
+    GEMINI_MODEL: str = Field(
+        default="gemini-2.5-flash",
+        description="Gemini model to use for reviews"
     )
     MAX_TOKENS_PER_FILE: int = Field(
         default=4000,
@@ -66,7 +66,7 @@ class Settings(BaseSettings):
     )
     MAX_RESPONSE_TOKENS: int = Field(
         default=4096,
-        description="Maximum tokens allowed for Claude review response"
+        description="Maximum tokens allowed for Gemini review response"
     )
 
     # Review Bot Behavior
@@ -92,7 +92,7 @@ class Settings(BaseSettings):
     )
     REVIEW_CONCURRENCY_LIMIT: int = Field(
         default=5,
-        description="Maximum concurrent file review calls to Anthropic API"
+        description="Maximum concurrent file review calls to Google Gemini API"
     )
 
     # Ignored extensions & filenames

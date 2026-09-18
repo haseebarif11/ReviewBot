@@ -75,6 +75,7 @@ def test_health_check_endpoint(client):
     assert data["status"] == "healthy"
     assert data["service"] == "ReviewBot"
     assert "version" in data
+    assert "gemini_model" in data
 
 
 def test_metrics_endpoint(client):

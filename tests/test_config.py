@@ -45,3 +45,20 @@ def test_severity_threshold_validation():
 
     with mock.patch.dict(os.environ, {"SEVERITY_THRESHOLD": "INVALID_LEVEL"}, clear=True):
         assert Settings().SEVERITY_THRESHOLD == "MEDIUM"
+
+
+def test_gemini_config_defaults_and_env():
+    """Verify default Gemini settings and environment variable overrides."""
+    with mock.patch.dict(os.environ, {}, clear=True):
+        settings = Settings()
+        assert settings.GEMINI_API_KEY is None
+        assert settings.GEMINI_MODEL == "gemini-2.5-flash"
+
+    env_overrides = {
+        "GEMINI_API_KEY": "test-gemini-key-123",
+        "GEMINI_MODEL": "gemini-2.5-pro",
+    }
+    with mock.patch.dict(os.environ, env_overrides, clear=True):
+        settings = Settings()
+        assert settings.GEMINI_API_KEY == "test-gemini-key-123"
+        assert settings.GEMINI_MODEL == "gemini-2.5-pro"
