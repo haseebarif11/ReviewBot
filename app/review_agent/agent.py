@@ -123,30 +123,53 @@ class ReviewAgent:
             max_tokens_budget=settings.MAX_TOKENS_PER_FILE,
         )
 
-        try:
-            async for attempt in AsyncRetrying(
-                stop=stop_after_attempt(3),
-                wait=wait_exponential(multiplier=1, min=1, max=10),
-                retry=retry_if_exception(_is_retryable_gemini_error),
-                reraise=True,
-            ):
-                with attempt:
-                    response = await self.client.aio.models.generate_content(
-                        model=self.model,
-                        contents=prompt,
-                        config=types.GenerateContentConfig(
-                            system_instruction=REVIEWER_SYSTEM_PROMPT,
-                            temperature=0.1,
-                            max_output_tokens=settings.MAX_RESPONSE_TOKENS,
-                            response_mime_type="application/json",
-                        ),
-                    )
-            raw_response = response.text
-        except Exception as e:
-            logger.error(f"Gemini API call failed for file {file_diff.filename} after retries: {e}")
+        # Ensure candidates list prioritizes available models if a non-existent/deprecated model name is given
+        candidate_models = [self.model]
+        if self.model == "gemini-2.5-flash":
+            candidate_models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.5-flash"]
+        else:
+            for m in ("gemini-2.0-flash", "gemini-1.5-flash"):
+                if m not in candidate_models:
+                    candidate_models.append(m)
+
+        raw_response = None
+        last_error = None
+
+        for current_model in candidate_models:
+            try:
+                async for attempt in AsyncRetrying(
+                    stop=stop_after_attempt(3),
+                    wait=wait_exponential(multiplier=1, min=1, max=10),
+                    retry=retry_if_exception(_is_retryable_gemini_error),
+                    reraise=True,
+                ):
+                    with attempt:
+                        response = await self.client.aio.models.generate_content(
+                            model=current_model,
+                            contents=prompt,
+                            config=types.GenerateContentConfig(
+                                system_instruction=REVIEWER_SYSTEM_PROMPT,
+                                temperature=0.1,
+                                max_output_tokens=settings.MAX_RESPONSE_TOKENS,
+                                response_mime_type="application/json",
+                            ),
+                        )
+                raw_response = response.text
+                break
+            except Exception as e:
+                last_error = e
+                err_str = str(e)
+                if "404" in err_str or "NOT_FOUND" in err_str:
+                    logger.warning(f"Gemini model '{current_model}' unavailable (404), attempting fallback...")
+                    continue
+                logger.error(f"Gemini API call failed for file {file_diff.filename} with model {current_model}: {e}")
+                break
+
+        if raw_response is None:
+            logger.error(f"Gemini review failed for file {file_diff.filename}: {last_error}")
             return FileReviewResult(
                 file=file_diff.filename,
-                summary=f"Analysis failed: {str(e)}",
+                summary=f"Analysis failed: {str(last_error)}",
                 findings=[]
             )
 

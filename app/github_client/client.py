@@ -247,13 +247,29 @@ class GitHubClient:
         if comments:
             payload["comments"] = comments
 
-        resp = await self._request(
-            "POST",
-            f"/repos/{owner}/{repo}/pulls/{pull_number}/reviews",
-            installation_id,
-            json_data=payload
-        )
-        return resp.json()
+        try:
+            resp = await self._request(
+                "POST",
+                f"/repos/{owner}/{repo}/pulls/{pull_number}/reviews",
+                installation_id,
+                json_data=payload
+            )
+            return resp.json()
+        except GitHubAPIError as e:
+            # Handle GitHub restriction: users cannot APPROVE or REQUEST_CHANGES on their own PR
+            if e.status_code == 422 and payload.get("event") != "COMMENT":
+                logger.warning(
+                    f"GitHub rejected {payload.get('event')} review ({e.message}). Retrying as COMMENT review..."
+                )
+                payload["event"] = "COMMENT"
+                resp = await self._request(
+                    "POST",
+                    f"/repos/{owner}/{repo}/pulls/{pull_number}/reviews",
+                    installation_id,
+                    json_data=payload
+                )
+                return resp.json()
+            raise
 
     async def post_issue_comment(self, owner: str, repo: str, issue_number: int, body: str, installation_id: Optional[int] = None) -> Dict[str, Any]:
         """Posts a standard comment on a PR or issue."""
