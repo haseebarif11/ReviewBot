@@ -28,6 +28,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("reviewbot.server")
+LAST_BACKGROUND_ERROR: Optional[str] = None
 
 app = FastAPI(
     title="ReviewBot",
@@ -222,6 +223,8 @@ async def process_pull_request_review(
         logger.info(f"Successfully posted review for {owner}/{repo}#{pull_number}!")
 
     except Exception as e:
+        global LAST_BACKGROUND_ERROR
+        LAST_BACKGROUND_ERROR = f"{type(e).__name__}: {str(e)}"
         logger.exception(f"Failed to complete review for PR #{pull_number}: {e}")
 
 
@@ -234,6 +237,13 @@ async def health_check():
         "version": "0.1.0",
         "gemini_model": settings.GEMINI_MODEL,
         "severity_threshold": settings.SEVERITY_THRESHOLD,
+        "config": {
+            "github_token_configured": bool(settings.GITHUB_TOKEN),
+            "gemini_api_key_configured": bool(settings.GEMINI_API_KEY),
+            "webhook_secret_configured": bool(settings.GITHUB_WEBHOOK_SECRET),
+            "github_app_configured": bool(settings.GITHUB_APP_ID and (settings.GITHUB_APP_PRIVATE_KEY or settings.GITHUB_APP_PRIVATE_KEY_PATH)),
+        },
+        "last_background_error": LAST_BACKGROUND_ERROR,
     }
 
 
