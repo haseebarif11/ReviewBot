@@ -17,7 +17,10 @@ logger = logging.getLogger("reviewbot.github_client")
 class GitHubAPIError(Exception):
     """Raised when a GitHub API request fails."""
     def __init__(self, status_code: int, message: str, response_body: Optional[str] = None):
-        super().__init__(f"GitHub API Error [{status_code}]: {message}")
+        detail = f"GitHub API Error [{status_code}]: {message}"
+        if response_body:
+            detail += f" - {response_body}"
+        super().__init__(detail)
         self.status_code = status_code
         self.message = message
         self.response_body = response_body
@@ -256,19 +259,29 @@ class GitHubClient:
             )
             return resp.json()
         except GitHubAPIError as e:
-            # Handle GitHub restriction: users cannot APPROVE or REQUEST_CHANGES on their own PR
-            if e.status_code == 422 and payload.get("event") != "COMMENT":
-                logger.warning(
-                    f"GitHub rejected {payload.get('event')} review ({e.message}). Retrying as COMMENT review..."
-                )
-                payload["event"] = "COMMENT"
-                resp = await self._request(
-                    "POST",
-                    f"/repos/{owner}/{repo}/pulls/{pull_number}/reviews",
-                    installation_id,
-                    json_data=payload
-                )
-                return resp.json()
+            # Handle GitHub restriction: users cannot review their own PR with APPROVE/REQUEST_CHANGES,
+            # or in some cases with the review submission endpoint at all.
+            if e.status_code == 422:
+                if payload.get("event") != "COMMENT":
+                    logger.warning(
+                        f"GitHub rejected {payload.get('event')} review ({e.response_body or e.message}). Retrying as COMMENT review..."
+                    )
+                    payload["event"] = "COMMENT"
+                    try:
+                        resp = await self._request(
+                            "POST",
+                            f"/repos/{owner}/{repo}/pulls/{pull_number}/reviews",
+                            installation_id,
+                            json_data=payload
+                        )
+                        return resp.json()
+                    except GitHubAPIError as retry_err:
+                        logger.warning(
+                            f"Retrying as COMMENT review also rejected ({retry_err.response_body or retry_err.message}). Falling back to issue comment..."
+                        )
+                # Fallback to standard issue comment
+                logger.info(f"Posting review summary as issue comment for {owner}/{repo}#{pull_number}...")
+                return await self.post_issue_comment(owner, repo, pull_number, body, installation_id)
             raise
 
     async def post_issue_comment(self, owner: str, repo: str, issue_number: int, body: str, installation_id: Optional[int] = None) -> Dict[str, Any]:
