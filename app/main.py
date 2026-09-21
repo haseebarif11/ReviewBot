@@ -197,18 +197,22 @@ async def process_pull_request_review(
             for c in aggregate.github_comments
         ]
 
-        await github_client.post_review(
-            owner=owner,
-            repo=repo,
-            pull_number=pull_number,
-            commit_id=commit_sha,
-            body=aggregate.summary_markdown,
-            event=aggregate.verdict.value,
-            comments=inline_comments_payload if inline_comments_payload else None,
-            installation_id=installation_id,
-        )
+        try:
+            await github_client.post_review(
+                owner=owner,
+                repo=repo,
+                pull_number=pull_number,
+                commit_id=commit_sha,
+                body=aggregate.summary_markdown,
+                event=aggregate.verdict.value,
+                comments=inline_comments_payload if inline_comments_payload else None,
+                installation_id=installation_id,
+            )
+            logger.info(f"Successfully posted review for {owner}/{repo}#{pull_number}!")
+        except Exception as post_err:
+            logger.error(f"Failed to post review to GitHub: {post_err}")
 
-        # Step 6: Record in history
+        # Step 6: Record in history (guarantees web dashboard updates)
         history_tracker.record_review(
             owner=owner,
             repo=repo,
@@ -219,8 +223,7 @@ async def process_pull_request_review(
             total_findings=aggregate.total_findings,
             findings_by_severity=aggregate.findings_by_severity,
         )
-
-        logger.info(f"Successfully posted review for {owner}/{repo}#{pull_number}!")
+        logger.info(f"Recorded review in history for {owner}/{repo}#{pull_number}!")
 
     except Exception as e:
         global LAST_BACKGROUND_ERROR
