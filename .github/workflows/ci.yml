@@ -32,7 +32,8 @@ jobs:
       - name: Run test suite with pytest
         env:
           GITHUB_WEBHOOK_SECRET: test_secret
-          ANTHROPIC_API_KEY: dummy_test_key
-          ANTHROPIC_MODEL: claude-3-5-sonnet-latest
+          GEMINI_API_KEY: dummy_test_key
+          GEMINI_MODEL: gemini-2.5-flash
+          PYTHONPATH: .
         run: |
-          pytest -v
+          python -m pytest -v
